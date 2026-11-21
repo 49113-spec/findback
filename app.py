@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import secrets
 import socket
@@ -11,7 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "findback-host-49113-honor-secret")
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, "lost_found.db")
 
@@ -142,7 +143,9 @@ HTML_PAGE = r"""
     .badge-open { background: var(--b-open-bg); color: var(--b-open-t); border: 1px solid var(--border); padding: 6px 13px; border-radius: 999px; }
     .badge-done { background: var(--b-done-bg); color: var(--b-done-t); border: 1px solid var(--border); padding: 6px 13px; border-radius: 999px; }
     .badge-host { background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(217,119,6,0.22)); color: #b45309; border: 1px solid rgba(245,158,11,0.45); padding: 6px 13px; border-radius: 999px; }
+    .badge-cohost { background: linear-gradient(135deg, rgba(14,165,233,0.22), rgba(99,102,241,0.22)); color: #0369a1; border: 1px solid rgba(14,165,233,0.45); padding: 6px 13px; border-radius: 999px; }
     body.dark-mode .badge-host { color: #fcd34d; }
+    body.dark-mode .badge-cohost { color: #7dd3fc; }
     .pill-btn {
       background: var(--glass); color: var(--text); border: 1px solid var(--border);
       padding: 6px 13px; border-radius: 999px; font-size: 12px; font-weight: bold;
@@ -167,6 +170,10 @@ HTML_PAGE = r"""
       border-radius: 14px; padding: 11px 16px; margin-bottom: 16px;
       font-size: 13px; font-weight: bold; text-align: center;
     }
+    .toast-banner.warn {
+      background: rgba(245, 158, 11, 0.22); color: var(--alert-h);
+      border-color: rgba(245, 158, 11, 0.5);
+    }
     .alert-box { background: var(--alert-bg); backdrop-filter: blur(22px); border: 1px solid var(--alert-bd); border-radius: 18px; padding: 16px 18px; margin-bottom: 20px; }
     .alert-box h2 { font-size: 14px; color: var(--alert-h); margin-bottom: 8px; }
     .alert-item { font-size: 13px; color: var(--alert-t); margin-bottom: 4px; }
@@ -174,20 +181,41 @@ HTML_PAGE = r"""
     .input, .select, .textarea { background: var(--input-bg); border: 1px solid var(--input-bd); border-radius: 12px; padding: 9px 13px; font-size: 14px; font-family: inherit; color: var(--text); outline: none; }
     .input::placeholder, .textarea::placeholder { color: var(--muted); }
     .input:focus, .select:focus, .textarea:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99,102,241,0.22); }
-    .filter-bar .input { flex: 1; min-width: 200px; }
+    .filter-bar .input { flex: 1; min-width: 180px; }
     .btn { border: 1px solid rgba(255,255,255,0.45); border-radius: 12px; padding: 9px 18px; font-size: 14px; font-weight: bold; cursor: pointer; color: #fff; font-family: inherit; transition: 0.2s; }
     .btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
     .btn-indigo { background: linear-gradient(135deg, #4f46e5, #2563eb); }
     .btn-rose { background: linear-gradient(135deg, #f43f5e, #e11d48); width: 100%; padding: 12px; }
-    .btn-emerald { background: linear-gradient(135deg, #10b981, #059669); font-size: 12px; padding: 7px 11px; white-space: nowrap; }
+    .btn-emerald { background: linear-gradient(135deg, #10b981, #059669); font-size: 12px; padding: 8px 11px; white-space: nowrap; }
+    .btn-slate { background: linear-gradient(135deg, #64748b, #475569); font-size: 12px; padding: 8px 12px; width: 100%; }
     .btn-amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
     .btn-full { width: 100%; padding: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 18px; }
     .card { border-radius: 20px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; transition: 0.25s; }
     .card:hover { transform: translateY(-3px); }
-    .card.resolved { opacity: 0.72; }
-    .card-img-wrap { width: 100%; height: 175px; border-radius: 14px; overflow: hidden; margin-bottom: 12px; border: 1px solid var(--border); cursor: zoom-in; }
+    .card.resolved { opacity: 0.76; }
+
+    /* แกลเลอรีรูปภาพในการ์ด */
+    .card-gallery { margin-bottom: 12px; }
+    .card-img-wrap { width: 100%; height: 180px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); cursor: zoom-in; position: relative; }
     .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .img-count-badge {
+      position: absolute; bottom: 8px; right: 8px;
+      background: rgba(15, 23, 42, 0.75); color: #fff;
+      font-size: 11px; font-weight: bold; padding: 3px 9px;
+      border-radius: 999px; backdrop-filter: blur(6px);
+    }
+    .thumb-strip {
+      display: flex; gap: 6px; margin-top: 7px; overflow-x: auto; padding-bottom: 2px;
+    }
+    .thumb-strip img {
+      width: 44px; height: 44px; object-fit: cover; border-radius: 8px;
+      border: 2px solid transparent; cursor: pointer; opacity: 0.72; transition: 0.15s;
+    }
+    .thumb-strip img.active, .thumb-strip img:hover {
+      border-color: #6366f1; opacity: 1; transform: scale(1.04);
+    }
+
     .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 6px; }
     .card-top-right { display: flex; align-items: center; gap: 8px; }
     .del-btn {
@@ -207,10 +235,61 @@ HTML_PAGE = r"""
     .meta { border-top: 1px solid var(--div); padding-top: 10px; font-size: 12px; color: var(--muted); }
     .meta div { margin-bottom: 3px; }
     .meta strong { color: var(--sub); }
-    .card-footer { border-top: 1px solid var(--div); padding-top: 12px; margin-top: 12px; }
-    .resolve-form { display: flex; gap: 6px; }
-    .resolve-form .input { flex: 1; min-width: 0; font-size: 12px; padding: 7px 10px; }
+
+    /* ป้ายแสดงรหัสคอนเฟิร์ม 5 หลักเฉพาะเจ้าของโพสต์ / HOST / Co-Host */
+    .pin-owner-badge {
+      display: inline-block;
+      margin-top: 6px;
+      background: rgba(245, 158, 11, 0.16);
+      color: var(--alert-h);
+      border: 1px dashed rgba(245, 158, 11, 0.55);
+      border-radius: 8px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+
+    /* คอมเมนต์ / แจ้งเบาะแสใต้การ์ด */
+    .clue-box {
+      border-top: 1px solid var(--div);
+      margin-top: 10px;
+      padding-top: 8px;
+      font-size: 12px;
+    }
+    .clue-list {
+      max-height: 92px;
+      overflow-y: auto;
+      margin-bottom: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .clue-item {
+      background: var(--input-bg);
+      border: 1px solid var(--div);
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--sub);
+      word-break: break-word;
+    }
+    .clue-item strong { color: var(--cat); }
+    .clue-form { display: flex; gap: 5px; }
+    .clue-form .input { flex: 1; min-width: 0; font-size: 11px; padding: 5px 8px; border-radius: 8px; }
+    .clue-btn {
+      background: var(--b-open-bg); color: var(--b-open-t);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 5px 9px; font-size: 11px; font-weight: bold; cursor: pointer;
+    }
+    .clue-btn:hover { filter: brightness(1.08); }
+
+    .card-footer { border-top: 1px solid var(--div); padding-top: 12px; margin-top: 10px; }
+    .resolve-stack { display: flex; flex-direction: column; gap: 6px; }
+    .resolve-row { display: flex; gap: 6px; }
+    .resolve-stack .input { flex: 1; min-width: 0; font-size: 12px; padding: 7px 10px; }
+    .pin-input { max-width: 118px; text-align: center; font-weight: bold; letter-spacing: 2px; }
     .done-txt { font-size: 13px; font-weight: bold; color: var(--done); }
+
     .form-box { max-width: 540px; margin: 0 auto; border-radius: 22px; padding: 26px; }
     .form-box h2 { font-size: 19px; margin-bottom: 4px; }
     .form-box p { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
@@ -218,23 +297,83 @@ HTML_PAGE = r"""
     .field label { display: block; font-size: 13px; font-weight: bold; margin-bottom: 5px; color: var(--sub); }
     .field .input, .field .select, .field .textarea { width: 100%; }
     .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .pin-setup-box {
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    .pin-setup-box label { color: var(--cat); }
+    .pin-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* อัปโหลดหลายรูป + ปุ่มลบรูปก่อนโพสต์ */
     .upload-box { border: 1.5px dashed var(--border); background: var(--input-bg); border-radius: 14px; padding: 12px; text-align: center; }
     .upload-box input[type="file"] { width: 100%; font-size: 13px; color: var(--sub); cursor: pointer; }
-    .preview-img { display: none; max-height: 180px; max-width: 100%; margin: 10px auto 0; border-radius: 12px; object-fit: contain; }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .preview-grid:empty { display: none; }
+    .preview-item {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      aspect-ratio: 1 / 1;
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .preview-item img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    .remove-img-btn {
+      position: absolute; top: 5px; right: 5px;
+      background: rgba(225, 29, 72, 0.92); color: #ffffff;
+      border: 1px solid rgba(255,255,255,0.7);
+      border-radius: 999px; padding: 3px 8px;
+      font-size: 11px; font-weight: bold; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      transition: 0.15s;
+    }
+    .remove-img-btn:hover { background: #be123c; transform: scale(1.06); }
+
     .empty { grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--muted); font-size: 14px; border-radius: 20px; }
 
+    /* Modals */
     .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(3,7,18,0.75); backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .modal-backdrop img.zoomed { max-width: 92vw; max-height: 86vh; border-radius: 18px; border: 1px solid rgba(255,255,255,0.25); cursor: zoom-out; }
-    .auth-card { max-width: 410px; width: 100%; border-radius: 24px; padding: 26px; position: relative; }
+    .zoom-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .zoom-wrap img.zoomed { max-width: 90vw; max-height: 80vh; border-radius: 18px; border: 1px solid rgba(255,255,255,0.25); }
+    .zoom-controls { display: flex; align-items: center; gap: 12px; }
+    .auth-card { max-width: 420px; width: 100%; border-radius: 24px; padding: 26px; position: relative; }
     .auth-card h2 { font-size: 21px; margin-bottom: 4px; text-align: center; background: var(--title); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .auth-sub { font-size: 12px; color: var(--sub); text-align: center; margin-bottom: 16px; }
+    .auth-sub { font-size: 12px; color: var(--sub); text-align: center; margin-bottom: 14px; }
+    .auth-tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+      background: var(--input-bg); padding: 5px; border-radius: 12px; margin-bottom: 14px;
+    }
+    .auth-tab {
+      border: none; background: transparent; color: var(--sub);
+      padding: 7px; border-radius: 9px; font-size: 13px; font-weight: bold;
+      cursor: pointer; font-family: inherit; transition: 0.2s;
+    }
+    .auth-tab.active {
+      background: linear-gradient(135deg, #4f46e5, #2563eb); color: #ffffff;
+    }
     .err-msg { background: rgba(225, 29, 72, 0.16); color: var(--h-lost); border: 1px solid rgba(225, 29, 72, 0.35); border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: bold; margin-bottom: 12px; text-align: center; }
+    .ok-msg { background: rgba(16, 185, 129, 0.18); color: var(--done); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: bold; margin-bottom: 12px; text-align: center; }
     .divider-txt { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0; position: relative; }
     .divider-txt::before, .divider-txt::after { content: ""; position: absolute; top: 50%; width: 38%; height: 1px; background: var(--border); }
     .divider-txt::before { left: 0; }
     .divider-txt::after { right: 0; }
-    .friend-list { max-height: 190px; overflow-y: auto; margin-top: 14px; border-top: 1px solid var(--div); padding-top: 10px; }
-    .friend-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 10px; background: var(--input-bg); margin-bottom: 6px; font-size: 13px; }
+    .friend-list { max-height: 200px; overflow-y: auto; margin-top: 14px; border-top: 1px solid var(--div); padding-top: 10px; }
+    .friend-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 10px; background: var(--input-bg); margin-bottom: 6px; font-size: 13px; gap: 8px; }
+    .role-pill { font-size: 10px; font-weight: bold; padding: 2px 7px; border-radius: 999px; margin-left: 5px; }
+    .role-cohost { background: rgba(14,165,233,0.2); color: #0284c7; border: 1px solid rgba(14,165,233,0.4); }
+    .role-user { background: rgba(100,116,139,0.18); color: var(--sub); border: 1px solid var(--border); }
+    .lock-pill { font-size: 11px; color: var(--muted); font-weight: bold; }
+    body.dark-mode .role-cohost { color: #7dd3fc; }
 
     .qr-card { max-width: 410px; width: 100%; border-radius: 24px; padding: 24px; text-align: center; position: relative; }
     .qr-card h2 { font-size: 19px; margin-bottom: 6px; }
@@ -437,20 +576,24 @@ HTML_PAGE = r"""
       <div class="badges">
         <span class="badge-open">รอรับคืน/ตามหา: {{ stat_open }}</span>
         <span class="badge-done">ส่งคืนแล้ว: {{ stat_resolved }}</span>
-        <button type="button" onclick="feedCat()" id="feedCatBtn" class="pill-btn feed-btn" title="ส่งคืนของหายสำเร็จเพื่อสุ่มอาหารแมว: 1 ชิ้น (49%), 2 ชิ้น (25%), 3 ชิ้น (15%), 4 ชิ้น (10%), 5 ชิ้น (1%)">
+        <button type="button" onclick="feedCat()" id="feedCatBtn" class="pill-btn feed-btn" title="ช่วยส่งคืนของหายให้คนอื่นสำเร็จเพื่อสุ่มอาหารแมว: 1 ชิ้น (49%), 2 ชิ้น (25%), 3 ชิ้น (15%), 4 ชิ้น (10%), 5 ชิ้น (1%)">
           🐟 ให้อาหารแมว (<span id="foodCountDisplay">{{ food_count }}</span>)
         </button>
 
         {% if is_host %}
           <span class="badge-host">👑 HOST ({{ current_user }})</span>
-          <button type="button" onclick="openFriendsModal()" class="pill-btn">👥 สร้างรหัสให้เพื่อน</button>
+          <button type="button" onclick="openFriendsModal()" class="pill-btn">👥 จัดการบัญชี & รหัส</button>
+          <a href="/logout" class="pill-btn" style="text-decoration:none;">ออกจากระบบ</a>
+        {% elif is_cohost %}
+          <span class="badge-cohost">🛡️ CO-HOST ({{ display_name or current_user }})</span>
+          <button type="button" onclick="openFriendsModal()" class="pill-btn">👥 จัดการบัญชี & รหัส</button>
           <a href="/logout" class="pill-btn" style="text-decoration:none;">ออกจากระบบ</a>
         {% elif current_user %}
           <span class="badge-open">👤 {{ display_name or current_user }}</span>
           <a href="/logout" class="pill-btn" style="text-decoration:none;">ออกจากระบบ</a>
         {% else %}
           <span class="badge-open">🚶 Guest Mode</span>
-          <button type="button" onclick="openLoginModal()" class="pill-btn">🔑 เข้าสู่ระบบ</button>
+          <button type="button" onclick="openLoginModal('signin')" class="pill-btn">🔑 Sign In / Sign Up</button>
         {% endif %}
 
         <button type="button" onclick="openQrModal()" class="pill-btn">📱 QR Code</button>
@@ -470,7 +613,7 @@ HTML_PAGE = r"""
   </nav>
 
   <main class="container main">
-    <div id="liveToast" class="toast-banner {% if not flash_msg %}hidden{% endif %}">{{ flash_msg or '' }}</div>
+    <div id="liveToast" class="toast-banner {% if flash_warn %}warn{% endif %} {% if not flash_msg %}hidden{% endif %}">{{ flash_msg or '' }}</div>
 
     {% if smart_matches %}
     <div class="alert-box">
@@ -487,13 +630,21 @@ HTML_PAGE = r"""
       <form method="GET" action="/" class="filter-bar glass">
         <input type="text" name="q" value="{{ keyword }}" placeholder="ค้นหาชื่อสิ่งของ, สถานที่, รายละเอียด..." class="input">
         <select name="type" onchange="this.form.submit()" class="select">
-          <option value="all" {% if filter_type == 'all' %}selected{% endif %}>ทุกประเภท (แจ้งหาย + เก็บได้)</option>
-          <option value="found" {% if filter_type == 'found' %}selected{% endif %}>เก็บได้ / รอเจ้าของมารับ</option>
-          <option value="lost" {% if filter_type == 'lost' %}selected{% endif %}>แจ้งทำของหาย / กำลังตามหา</option>
+          <option value="all" {% if filter_type == 'all' %}selected{% endif %}>ทุกประเภท</option>
+          <option value="found" {% if filter_type == 'found' %}selected{% endif %}>เก็บได้ / รอเจ้าของ</option>
+          <option value="lost" {% if filter_type == 'lost' %}selected{% endif %}>แจ้งของหาย / ตามหา</option>
+        </select>
+        <select name="category" onchange="this.form.submit()" class="select">
+          <option value="all" {% if filter_category == 'all' %}selected{% endif %}>ทุกหมวดหมู่</option>
+          <option value="อุปกรณ์ไอที / มือถือ" {% if filter_category == 'อุปกรณ์ไอที / มือถือ' %}selected{% endif %}>อุปกรณ์ไอที / มือถือ</option>
+          <option value="กระเป๋า / เงิน / บัตร" {% if filter_category == 'กระเป๋า / เงิน / บัตร' %}selected{% endif %}>กระเป๋า / เงิน / บัตร</option>
+          <option value="อุปกรณ์การเรียน / หนังสือ" {% if filter_category == 'อุปกรณ์การเรียน / หนังสือ' %}selected{% endif %}>อุปกรณ์การเรียน / หนังสือ</option>
+          <option value="กุญแจ / ของใช้ส่วนตัว" {% if filter_category == 'กุญแจ / ของใช้ส่วนตัว' %}selected{% endif %}>กุญแจ / ของใช้ส่วนตัว</option>
+          <option value="อื่นๆ" {% if filter_category == 'อื่นๆ' %}selected{% endif %}>อื่นๆ</option>
         </select>
         <select name="status" onchange="this.form.submit()" class="select">
-          <option value="open" {% if filter_status == 'open' %}selected{% endif %}>สถานะ: กำลังดำเนินการ</option>
-          <option value="resolved" {% if filter_status == 'resolved' %}selected{% endif %}>สถานะ: ส่งคืนเรียบร้อยแล้ว</option>
+          <option value="open" {% if filter_status == 'open' %}selected{% endif %}>กำลังดำเนินการ</option>
+          <option value="resolved" {% if filter_status == 'resolved' %}selected{% endif %}>ส่งคืน/ปิดแล้ว</option>
           <option value="all" {% if filter_status == 'all' %}selected{% endif %}>ทุกสถานะ</option>
         </select>
         <button type="submit" class="btn btn-indigo">ค้นหา</button>
@@ -505,13 +656,26 @@ HTML_PAGE = r"""
         {% endif %}
 
         {% for item in items %}
-        <div class="card glass {% if item.status == 'resolved' %}resolved{% endif %}">
+        <div class="card glass {% if item.status == 'resolved' %}resolved{% endif %}" id="card-{{ item.id }}">
           <div>
-            {% if item.image_data %}
-            <div class="card-img-wrap" onclick="openImageModal(this.querySelector('img').src)" title="คลิกเพื่อขยายรูป">
-              <img src="{{ item.image_data }}" alt="{{ item.item_name }}">
+            {% if item.images %}
+            <div class="card-gallery">
+              <div class="card-img-wrap" onclick="openCardGallery({{ item.id }})" title="คลิกเพื่อขยายรูป">
+                <img id="main-img-{{ item.id }}" src="{{ item.images[0] }}" data-idx="0" alt="{{ item.item_name }}">
+                {% if item.images|length > 1 %}
+                <span id="img-badge-{{ item.id }}" class="img-count-badge">📷 1 / {{ item.images|length }}</span>
+                {% endif %}
+              </div>
+              {% if item.images|length > 1 %}
+              <div class="thumb-strip">
+                {% for img_src in item.images %}
+                <img src="{{ img_src }}" class="{% if loop.index0 == 0 %}active{% endif %}" onclick="switchCardThumb({{ item.id }}, {{ loop.index0 }}, this)" alt="รูปที่ {{ loop.index }}">
+                {% endfor %}
+              </div>
+              {% endif %}
             </div>
             {% endif %}
+
             <div class="card-top">
               {% if item.type == 'found' %}
               <span class="tag-found">เก็บได้ (รอเจ้าของ)</span>
@@ -534,17 +698,49 @@ HTML_PAGE = r"""
               <div><strong>สถานที่:</strong> {{ item.location }}</div>
               <div><strong>ผู้แจ้ง/ผู้บันทึก:</strong> {{ item.reporter_name }}</div>
               <div><strong>ติดต่อ/จุดรับคืน:</strong> {{ item.contact_or_pickup }}</div>
+              {% if item.can_see_code and item.confirm_code %}
+              <div class="pin-owner-badge">
+                🔑 รหัสคอนเฟิร์มส่งคืน: {{ item.confirm_code }}
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- ช่องคอมเมนต์ / แจ้งเบาะแสใต้โพสต์ -->
+            <div class="clue-box">
+              {% if item.comments %}
+              <div class="clue-list">
+                {% for c in item.comments %}
+                <div class="clue-item">
+                  <strong>{{ c.author_name }}:</strong> {{ c.message }}
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              <form method="POST" action="/comment/{{ item.id }}" class="clue-form">
+                <input type="text" name="message" required placeholder="💬 แจ้งเบาะแส / สอบถามใต้โพสต์..." class="input">
+                <button type="submit" class="clue-btn">ส่ง</button>
+              </form>
             </div>
           </div>
 
           <div class="card-footer">
             {% if item.status == 'resolved' %}
-            <span class="done-txt">ส่งคืนแล้ว (ผู้รับ: {{ item.claimed_by }})</span>
+              <span class="done-txt">✔ ปิดรายการแล้ว ({{ item.claimed_by }})</span>
+            {% elif item.type == 'lost' and item.is_owner %}
+              <form method="POST" action="/resolve/{{ item.id }}" style="margin:0;">
+                <input type="hidden" name="self_found" value="1">
+                <button type="submit" class="btn btn-slate" title="เจ้าของพบของด้วยตัวเอง ปิดประกาศโดยไม่ได้รับอาหารแมว">
+                  ✓ เจอของแล้ว (ปิดประกาศของฉัน)
+                </button>
+              </form>
             {% else %}
-            <form method="POST" action="/resolve/{{ item.id }}" class="resolve-form">
-              <input type="text" name="claimed_by" required placeholder="ระบุชื่อผู้รับคืน..." class="input">
-              <button type="submit" class="btn btn-emerald" title="โอกาสสุ่ม: 1 ชิ้น (49%), 2 ชิ้น (25%), 3 ชิ้น (15%), 4 ชิ้น (10%), 5 ชิ้น (1%)">บันทึกส่งคืน (สุ่ม 1–5 🐟)</button>
-            </form>
+              <form method="POST" action="/resolve/{{ item.id }}" class="resolve-stack">
+                <input type="text" name="claimed_by" required placeholder="{% if item.type == 'lost' %}ระบุชื่อผู้เก็บได้ / ผู้ส่งคืน...{% else %}ระบุชื่อเจ้าของตัวจริงที่มารับ...{% endif %}" class="input">
+                <div class="resolve-row">
+                  <input type="text" name="confirm_code" required maxlength="5" pattern="\d{5}" inputmode="numeric" placeholder="รหัส 5 หลัก" title="กรอกรหัสคอนเฟิร์มตัวเลข 5 หลักที่ผู้โพสต์ตั้งไว้" class="input pin-input">
+                  <button type="submit" class="btn btn-emerald" style="flex:1;" title="ยืนยันรหัส 5 หลักเพื่อส่งคืนและสุ่มรับอาหารแมว 1–5 ชิ้น">ยืนยันส่งคืน (สุ่ม 1–5 🐟)</button>
+                </div>
+              </form>
             {% endif %}
           </div>
         </div>
@@ -555,10 +751,10 @@ HTML_PAGE = r"""
     <section id="view-reportLost" class="hidden">
       <div class="form-box glass">
         <h2 style="color:var(--h-lost);">แบบฟอร์มแจ้งทำของหาย</h2>
-        <p>กรอกข้อมูลทรัพย์สินที่สูญหาย เพื่อให้ระบบช่วยจับคู่กับของที่จุดรับแจ้งบันทึกไว้</p>
+        <p>กรอกข้อมูลทรัพย์สินที่สูญหาย พร้อมตั้งรหัสคอนเฟิร์ม 5 หลักสำหรับยืนยันตอนรับของคืน</p>
         <form method="POST" action="/add" enctype="multipart/form-data">
           <input type="hidden" name="type" value="lost">
-          <input type="hidden" name="image_data" id="lostImageData">
+          <input type="hidden" name="images_json" id="lostImagesJson" value="[]">
           <div class="field">
             <label>ชื่อสิ่งของที่หาย *</label>
             <input type="text" name="item_name" required placeholder="เช่น หูฟังไร้สาย สีขาว, บัตรนักเรียน" class="input">
@@ -583,11 +779,18 @@ HTML_PAGE = r"""
             <label>สถานที่คาดว่าทำหาย *</label>
             <input type="text" name="location" required placeholder="เช่น อาคาร 2 ห้อง 204" class="input">
           </div>
+
+          <div class="pin-setup-box">
+            <label>🔑 ตั้งรหัสคอนเฟิร์มตอนรับของคืน (ตัวเลข 5 หลัก) *</label>
+            <input type="text" name="confirm_code" required maxlength="5" pattern="\d{5}" inputmode="numeric" placeholder="เช่น 12345 (ตั้งซ้ำกับโพสต์อื่นได้)" class="input" style="margin-top:6px;letter-spacing:3px;font-weight:bold;">
+            <div class="pin-hint">เก็บตัวเลข 5 หลักนี้ไว้บอกผู้ที่เก็บของมาคืน เพื่อใช้กดยืนยันส่งมอบและรับรางวัลอาหารแมว</div>
+          </div>
+
           <div class="field">
-            <label>รูปภาพสิ่งของ (ถ้ามี)</label>
+            <label>รูปภาพสิ่งของ (เพิ่มได้หลายรูป สูงสุด 5 รูป)</label>
             <div class="upload-box">
-              <input type="file" name="image_file" accept="image/*" onchange="handleImageSelect(this, 'lostPreview', 'lostImageData')">
-              <img id="lostPreview" class="preview-img" alt="ตัวอย่างรูปภาพ">
+              <input type="file" id="lostFileInput" accept="image/*" multiple onchange="handleMultiImageSelect(this, 'lostPreviewGrid', 'lostImagesJson')">
+              <div id="lostPreviewGrid" class="preview-grid"></div>
             </div>
           </div>
           <div class="field">
@@ -612,10 +815,10 @@ HTML_PAGE = r"""
     <section id="view-recordFound" class="hidden">
       <div class="form-box glass">
         <h2 style="color:var(--h-found);">บันทึกข้อมูลของที่เก็บได้ (จุดรับแจ้ง)</h2>
-        <p>สำหรับเจ้าหน้าที่/ผู้เก็บได้ บันทึกสิ่งของเข้าคลังเพื่อรอเจ้าของมาติดต่อรับคืน</p>
+        <p>บันทึกสิ่งของเข้าคลัง พร้อมตั้งรหัสคอนเฟิร์ม 5 หลักสำหรับยืนยันเมื่อเจ้าของตัวจริงมารับคืน</p>
         <form method="POST" action="/add" enctype="multipart/form-data">
           <input type="hidden" name="type" value="found">
-          <input type="hidden" name="image_data" id="foundImageData">
+          <input type="hidden" name="images_json" id="foundImagesJson" value="[]">
           <div class="field">
             <label>ชื่อสิ่งของที่พบ *</label>
             <input type="text" name="item_name" required placeholder="เช่น กระเป๋าสตางค์สีดำ, กุญแจรถ" class="input">
@@ -640,11 +843,18 @@ HTML_PAGE = r"""
             <label>จุดที่พบสิ่งของ *</label>
             <input type="text" name="location" required placeholder="เช่น โรงอาหาร โต๊ะที่ 5" class="input">
           </div>
+
+          <div class="pin-setup-box">
+            <label>🔑 ตั้งรหัสคอนเฟิร์มส่งคืนเจ้าของ (ตัวเลข 5 หลัก) *</label>
+            <input type="text" name="confirm_code" required maxlength="5" pattern="\d{5}" inputmode="numeric" placeholder="เช่น 55555 (ตั้งซ้ำกับโพสต์อื่นได้)" class="input" style="margin-top:6px;letter-spacing:3px;font-weight:bold;">
+            <div class="pin-hint">ใช้กรอกยืนยันตอนตรวจสอบแล้วว่าเจ้าของตัวจริงมารับของคืน</div>
+          </div>
+
           <div class="field">
-            <label>รูปภาพสิ่งของที่พบ (ถ้ามี)</label>
+            <label>รูปภาพสิ่งของที่พบ (เพิ่มได้หลายรูป สูงสุด 5 รูป)</label>
             <div class="upload-box">
-              <input type="file" name="image_file" accept="image/*" onchange="handleImageSelect(this, 'foundPreview', 'foundImageData')">
-              <img id="foundPreview" class="preview-img" alt="ตัวอย่างรูปภาพ">
+              <input type="file" id="foundFileInput" accept="image/*" multiple onchange="handleMultiImageSelect(this, 'foundPreviewGrid', 'foundImagesJson')">
+              <div id="foundPreviewGrid" class="preview-grid"></div>
             </div>
           </div>
           <div class="field">
@@ -667,15 +877,26 @@ HTML_PAGE = r"""
     </section>
   </main>
 
-  <!-- หน้าต่างเข้าสู่ระบบ & Guest Mode -->
+  <!-- หน้าต่าง Sign In / Sign Up / Guest Mode -->
   <div id="loginModal" class="modal-backdrop {% if not show_login %}hidden{% endif %}" onclick="if(event.target===this) closeLoginModal()">
     <div class="auth-card glass">
       <h2>FindBack</h2>
-      <p class="auth-sub">เข้าสู่ระบบด้วยบัญชีสมาชิก หรือเข้าใช้งานแบบ Guest</p>
+      <p class="auth-sub">เข้าสู่ระบบ สมัครสมาชิกใหม่ หรือเข้าใช้งานแบบ Guest</p>
+
+      <div class="auth-tabs">
+        <button type="button" id="tabBtnSignIn" class="auth-tab {% if auth_tab != 'signup' %}active{% endif %}" onclick="switchAuthTab('signin')">🔑 Sign In (เข้าสู่ระบบ)</button>
+        <button type="button" id="tabBtnSignUp" class="auth-tab {% if auth_tab == 'signup' %}active{% endif %}" onclick="switchAuthTab('signup')">✨ Sign Up (สมัครสมาชิก)</button>
+      </div>
+
       {% if login_error %}
       <div class="err-msg">{{ login_error }}</div>
       {% endif %}
-      <form method="POST" action="/login">
+      {% if signup_ok %}
+      <div class="ok-msg">{{ signup_ok }}</div>
+      {% endif %}
+
+      <!-- ฟอร์ม Sign In -->
+      <form id="signInForm" method="POST" action="/login" class="{% if auth_tab == 'signup' %}hidden{% endif %}">
         <div class="field">
           <label>ชื่อผู้ใช้ (Username)</label>
           <input type="text" name="username" required placeholder="กรอกชื่อผู้ใช้..." class="input">
@@ -684,8 +905,26 @@ HTML_PAGE = r"""
           <label>รหัสผ่าน (Password)</label>
           <input type="password" name="password" required placeholder="กรอกรหัสผ่าน..." class="input">
         </div>
-        <button type="submit" class="btn btn-indigo btn-full">เข้าสู่ระบบ</button>
+        <button type="submit" class="btn btn-indigo btn-full">เข้าสู่ระบบ (Sign In)</button>
       </form>
+
+      <!-- ฟอร์ม Sign Up (สมัครเองได้เฉพาะบัญชีธรรมดา) -->
+      <form id="signUpForm" method="POST" action="/signup" class="{% if auth_tab != 'signup' %}hidden{% endif %}">
+        <div class="field">
+          <label>ตั้งชื่อผู้ใช้ (Username) *</label>
+          <input type="text" name="username" required placeholder="เช่น somchai99 (ห้ามซ้ำกับคนอื่น)" class="input">
+        </div>
+        <div class="field">
+          <label>ตั้งรหัสผ่าน (Password) *</label>
+          <input type="password" name="password" required placeholder="ตั้งรหัสผ่านสำหรับเข้าสู่ระบบ..." class="input">
+        </div>
+        <div class="field">
+          <label>ชื่อแสดงผล / ชื่อเล่น (ไม่บังคับ)</label>
+          <input type="text" name="display_name" placeholder="เช่น สมชาย ม.2" class="input">
+        </div>
+        <button type="submit" class="btn btn-emerald btn-full" style="font-size:14px;padding:12px;">สมัครสมาชิก (Sign Up)</button>
+      </form>
+
       <div class="divider-txt">หรือ</div>
       <form method="POST" action="/guest">
         <button type="submit" class="btn btn-ghost btn-full">🚶 เข้าใช้งานแบบ Guest (ไม่ต้องล็อกอิน)</button>
@@ -693,47 +932,77 @@ HTML_PAGE = r"""
     </div>
   </div>
 
-  <!-- หน้าต่างสร้างรหัสให้เพื่อน (เฉพาะ HOST) -->
-  {% if is_host %}
+  <!-- หน้าต่างจัดการบัญชี & สร้าง/ลบรหัส (HOST และ CO-HOST) -->
+  {% if is_host or is_cohost %}
   <div id="friendsModal" class="modal-backdrop {% if not show_friends %}hidden{% endif %}" onclick="if(event.target===this) closeFriendsModal()">
-    <div class="auth-card glass" style="max-width:440px;">
-      <h2>👑 สร้างรหัสให้เพื่อน (HOST)</h2>
-      <p class="auth-sub">กำหนดชื่อผู้ใช้และรหัสผ่านให้เพื่อนเข้าใช้งาน (เพื่อนจะลบได้เฉพาะโพสต์ของตัวเอง)</p>
-      {% if friend_msg %}
-      <div class="err-msg" style="background:rgba(16,185,129,0.18);color:var(--done);border-color:rgba(16,185,129,0.4);">{{ friend_msg }}</div>
+    <div class="auth-card glass" style="max-width:460px;">
+      {% if is_host %}
+        <h2>👑 จัดการบัญชี & รหัส (HOST)</h2>
+        <p class="auth-sub">สร้างบัญชีได้ 2 แบบคือ <b>Co-Host</b> และ <b>ธรรมดา</b> พร้อมลบบัญชีได้ทั้งหมด</p>
+      {% else %}
+        <h2>🛡️ จัดการบัญชี & รหัส (CO-HOST)</h2>
+        <p class="auth-sub">สามารถ <b>สร้าง</b> และ <b>ลบ</b> บัญชีแบบ <b>ธรรมดา (User)</b> ได้</p>
       {% endif %}
-      <form method="POST" action="/host/create_user">
+
+      {% if friend_msg %}
+      <div class="ok-msg">{{ friend_msg }}</div>
+      {% endif %}
+      {% if friend_err %}
+      <div class="err-msg">{{ friend_err }}</div>
+      {% endif %}
+
+      <form method="POST" action="/manage/create_user">
         <div class="row-2">
           <div class="field">
             <label>ชื่อผู้ใช้ (Username) *</label>
-            <input type="text" name="new_username" required placeholder="เช่น tonmai01" class="input">
+            <input type="text" name="new_username" required placeholder="เช่น student_01" class="input">
           </div>
           <div class="field">
             <label>รหัสผ่าน (Password) *</label>
             <input type="text" name="new_password" required placeholder="ตั้งรหัสผ่าน..." class="input">
           </div>
         </div>
-        <div class="field">
-          <label>ชื่อเล่น / ชื่อแสดงผล (ไม่บังคับ)</label>
-          <input type="text" name="display_name" placeholder="เช่น ต้นไม้ ม.1" class="input">
+        <div class="row-2">
+          <div class="field">
+            <label>ประเภทสิทธิ์บัญชี *</label>
+            <select name="role" class="select">
+              <option value="user">👤 ธรรมดา (User)</option>
+              {% if is_host %}
+              <option value="cohost">🛡️ Co-Host (ผู้ช่วยดูแล)</option>
+              {% endif %}
+            </select>
+          </div>
+          <div class="field">
+            <label>ชื่อแสดงผล (ไม่บังคับ)</label>
+            <input type="text" name="display_name" placeholder="เช่น พี่สภานักเรียน" class="input">
+          </div>
         </div>
-        <button type="submit" class="btn btn-amber btn-full">+ สร้างบัญชีให้เพื่อน</button>
+        <button type="submit" class="btn btn-amber btn-full">+ สร้างบัญชี / อัปเดตรหัส</button>
       </form>
 
       <div class="friend-list">
-        <div style="font-size:12px;font-weight:bold;color:var(--sub);margin-bottom:6px;">รายชื่อบัญชีเพื่อนที่สร้างไว้ ({{ friends|length }} คน)</div>
+        <div style="font-size:12px;font-weight:bold;color:var(--sub);margin-bottom:6px;">รายชื่อบัญชีทั้งหมดในระบบ ({{ friends|length }} บัญชี)</div>
         {% if not friends %}
-        <div style="font-size:12px;color:var(--muted);text-align:center;padding:10px;">ยังไม่มีบัญชีเพื่อน</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;padding:10px;">ยังไม่มีบัญชีอื่นในระบบ</div>
         {% endif %}
         {% for f in friends %}
         <div class="friend-row">
           <div>
             <strong>{{ f.username }}</strong>
-            {% if f.display_name %}<span style="color:var(--muted);font-size:12px;"> ({{ f.display_name }})</span>{% endif %}
+            {% if f.role == 'cohost' %}
+              <span class="role-pill role-cohost">🛡️ Co-Host</span>
+            {% else %}
+              <span class="role-pill role-user">👤 ธรรมดา</span>
+            {% endif %}
+            {% if f.display_name %}<div style="color:var(--muted);font-size:11px;">ชื่อแสดงผล: {{ f.display_name }}</div>{% endif %}
           </div>
-          <form method="POST" action="/host/delete_user/{{ f.username }}" onsubmit="return confirm('ลบบัญชี {{ f.username }} ใช่หรือไม่?');" style="margin:0;">
-            <button type="submit" class="del-btn" title="ลบบัญชีเพื่อน">✕</button>
+          {% if is_host or (is_cohost and f.role == 'user') %}
+          <form method="POST" action="/manage/delete_user/{{ f.username }}" onsubmit="return confirm('ยืนยันลบบัญชีและรหัสของ {{ f.username }} ใช่หรือไม่?');" style="margin:0;">
+            <button type="submit" class="del-btn" title="ลบบัญชีและรหัสนี้">✕</button>
           </form>
+          {% else %}
+          <span class="lock-pill" title="เฉพาะ HOST เท่านั้นที่ลบบัญชี Co-Host ได้">🔒 Co-Host</span>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -743,8 +1012,17 @@ HTML_PAGE = r"""
   </div>
   {% endif %}
 
-  <div id="imgModal" class="modal-backdrop hidden" onclick="closeImageModal()">
-    <img id="modalImg" class="zoomed" src="" alt="ขยายรูปภาพ">
+  <!-- Modal ขยายรูปภาพ (รองรับเลื่อนดูหลายรูป) -->
+  <div id="imgModal" class="modal-backdrop hidden" onclick="if(event.target===this) closeImageModal()">
+    <div class="zoom-wrap">
+      <img id="modalImg" class="zoomed" src="" alt="ขยายรูปภาพ">
+      <div class="zoom-controls">
+        <button type="button" id="zoomPrevBtn" onclick="stepZoomGallery(-1)" class="btn btn-ghost" style="padding:7px 14px;font-size:13px;">◀ ก่อนหน้า</button>
+        <span id="zoomCounter" style="color:#fff;font-size:13px;font-weight:bold;">1 / 1</span>
+        <button type="button" id="zoomNextBtn" onclick="stepZoomGallery(1)" class="btn btn-ghost" style="padding:7px 14px;font-size:13px;">ถัดไป ▶</button>
+        <button type="button" onclick="closeImageModal()" class="btn btn-rose" style="width:auto;padding:7px 16px;font-size:13px;">ปิด</button>
+      </div>
+    </div>
   </div>
 
   <div id="qrModal" class="modal-backdrop hidden" onclick="if(event.target===this) closeQrModal()">
@@ -767,11 +1045,16 @@ HTML_PAGE = r"""
 
   <script>
     var BASE_PUBLIC_URL = {{ base_public_url | tojson }};
+    var CARD_GALLERIES = {{ card_galleries_json | safe }};
+    var activeZoomList = [];
+    var activeZoomIdx = 0;
 
-    function showToast(msg) {
+    function showToast(msg, isWarn) {
       var el = document.getElementById('liveToast');
       if (!el) return;
       el.textContent = msg;
+      if (isWarn) el.classList.add('warn');
+      else el.classList.remove('warn');
       el.classList.remove('hidden');
       clearTimeout(el._timer);
       el._timer = setTimeout(function() { el.classList.add('hidden'); }, 5000);
@@ -786,6 +1069,24 @@ HTML_PAGE = r"""
       btn.classList.add('active');
     }
 
+    function switchAuthTab(mode) {
+      var signInForm = document.getElementById('signInForm');
+      var signUpForm = document.getElementById('signUpForm');
+      var btnIn = document.getElementById('tabBtnSignIn');
+      var btnUp = document.getElementById('tabBtnSignUp');
+      if (mode === 'signup') {
+        signInForm.classList.add('hidden');
+        signUpForm.classList.remove('hidden');
+        btnIn.classList.remove('active');
+        btnUp.classList.add('active');
+      } else {
+        signUpForm.classList.add('hidden');
+        signInForm.classList.remove('hidden');
+        btnUp.classList.remove('active');
+        btnIn.classList.add('active');
+      }
+    }
+
     function toggleTheme() {
       var isDark = document.body.classList.toggle('dark-mode');
       var btn = document.getElementById('themeToggleBtn');
@@ -798,7 +1099,8 @@ HTML_PAGE = r"""
       document.getElementById('themeToggleBtn').textContent = '✨ Default Mode';
     }
 
-    function openLoginModal() {
+    function openLoginModal(tab) {
+      if (tab) switchAuthTab(tab);
       document.getElementById('loginModal').classList.remove('hidden');
     }
     function closeLoginModal() {
@@ -813,34 +1115,130 @@ HTML_PAGE = r"""
       if (m) m.classList.add('hidden');
     }
 
-    function handleImageSelect(input, previewId, hiddenId) {
-      var file = input.files[0];
-      var preview = document.getElementById(previewId);
+    /* ระบบเพิ่มรูปได้หลายรูป + ปุ่มลบรูปก่อนโพสต์ */
+    var formImageStore = {
+      lostImagesJson: [],
+      foundImagesJson: []
+    };
+
+    function renderFormPreviews(gridId, hiddenId) {
+      var list = formImageStore[hiddenId] || [];
+      var grid = document.getElementById(gridId);
       var hidden = document.getElementById(hiddenId);
-      if (!file) { preview.style.display = 'none'; hidden.value = ''; return; }
-      var reader = new FileReader();
-      reader.onload = function(e) {
-        var img = new Image();
-        img.onload = function() {
-          var canvas = document.createElement('canvas');
-          var maxW = 640, w = img.width, h = img.height;
-          if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          var dataUrl = canvas.toDataURL('image/jpeg', 0.78);
-          hidden.value = dataUrl;
-          preview.src = dataUrl;
-          preview.style.display = 'block';
+      hidden.value = JSON.stringify(list);
+      grid.innerHTML = '';
+
+      list.forEach(function(dataUrl, idx) {
+        var wrap = document.createElement('div');
+        wrap.className = 'preview-item';
+
+        var img = document.createElement('img');
+        img.src = dataUrl;
+        img.alt = 'รูปที่ ' + (idx + 1);
+
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'remove-img-btn';
+        delBtn.textContent = '✕ ลบรูป';
+        delBtn.title = 'ลบรูปนี้เพื่อเลือกหรือถ่ายใหม่';
+        delBtn.onclick = function() {
+          formImageStore[hiddenId].splice(idx, 1);
+          renderFormPreviews(gridId, hiddenId);
         };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+
+        wrap.appendChild(img);
+        wrap.appendChild(delBtn);
+        grid.appendChild(wrap);
+      });
     }
 
-    function openImageModal(src) {
-      document.getElementById('modalImg').src = src;
+    function handleMultiImageSelect(input, gridId, hiddenId) {
+      var files = Array.from(input.files || []);
+      if (!files.length) return;
+      var maxPhotos = 5;
+      var currentList = formImageStore[hiddenId] || [];
+      var remaining = maxPhotos - currentList.length;
+
+      if (remaining <= 0) {
+        showToast('เพิ่มรูปได้สูงสุด ' + maxPhotos + ' รูปต่อรายการ (กดปุ่ม ✕ ลบรูป เพื่อเปลี่ยนรูปได้)', true);
+        input.value = '';
+        return;
+      }
+
+      var toProcess = files.slice(0, remaining);
+      if (files.length > remaining) {
+        showToast('เลือกได้สูงสุด ' + maxPhotos + ' รูป ระบบนำเข้า ' + remaining + ' รูปแรกให้แล้ว', true);
+      }
+
+      toProcess.forEach(function(file) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var img = new Image();
+          img.onload = function() {
+            var canvas = document.createElement('canvas');
+            var maxW = 640, w = img.width, h = img.height;
+            if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            var dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+            formImageStore[hiddenId].push(dataUrl);
+            renderFormPreviews(gridId, hiddenId);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      input.value = '';
+    }
+
+    /* สลับรูปย่อยบนการ์ด & เปิดแกลเลอรีขยายเต็มจอ */
+    function switchCardThumb(itemId, idx, thumbEl) {
+      var imgs = CARD_GALLERIES[itemId] || [];
+      if (!imgs[idx]) return;
+      var mainImg = document.getElementById('main-img-' + itemId);
+      if (mainImg) {
+        mainImg.src = imgs[idx];
+        mainImg.setAttribute('data-idx', idx);
+      }
+      var badge = document.getElementById('img-badge-' + itemId);
+      if (badge) {
+        badge.textContent = '📷 ' + (idx + 1) + ' / ' + imgs.length;
+      }
+      if (thumbEl && thumbEl.parentElement) {
+        thumbEl.parentElement.querySelectorAll('img').forEach(function(el) {
+          el.classList.remove('active');
+        });
+        thumbEl.classList.add('active');
+      }
+    }
+
+    function openCardGallery(itemId) {
+      var imgs = CARD_GALLERIES[itemId] || [];
+      if (!imgs.length) return;
+      var mainImg = document.getElementById('main-img-' + itemId);
+      var startIdx = mainImg ? parseInt(mainImg.getAttribute('data-idx') || '0', 10) : 0;
+      activeZoomList = imgs;
+      activeZoomIdx = startIdx;
+      updateZoomModal();
       document.getElementById('imgModal').classList.remove('hidden');
     }
+
+    function updateZoomModal() {
+      if (!activeZoomList.length) return;
+      document.getElementById('modalImg').src = activeZoomList[activeZoomIdx];
+      document.getElementById('zoomCounter').textContent = (activeZoomIdx + 1) + ' / ' + activeZoomList.length;
+      var multi = activeZoomList.length > 1;
+      document.getElementById('zoomPrevBtn').style.display = multi ? 'inline-block' : 'none';
+      document.getElementById('zoomNextBtn').style.display = multi ? 'inline-block' : 'none';
+    }
+
+    function stepZoomGallery(delta) {
+      if (!activeZoomList.length) return;
+      activeZoomIdx = (activeZoomIdx + delta + activeZoomList.length) % activeZoomList.length;
+      updateZoomModal();
+    }
+
     function closeImageModal() {
       document.getElementById('imgModal').classList.add('hidden');
       document.getElementById('modalImg').src = '';
@@ -922,7 +1320,7 @@ HTML_PAGE = r"""
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (!data.ok) {
-              showToast('ยังไม่มีอาหารแมว — ช่วยส่งคืนของหายเพื่อสุ่มรับอาหารแมว 1–5 ชิ้น 🐟');
+              showToast('ยังไม่มีอาหารแมว — ช่วยส่งคืนของหายให้คนอื่นเพื่อสุ่มรับอาหารแมว 1–5 ชิ้น 🐟', true);
               return;
             }
             document.getElementById('foodCountDisplay').textContent = data.food_count;
@@ -943,7 +1341,7 @@ HTML_PAGE = r"""
 
             foodTarget = { x: tx, y: ty, el: bowl };
             eatingUntil = 0;
-            showToast('วางปลาให้น้องแมวแล้ว! เหลืออาหารแมว ' + data.food_count + ' ชิ้น 🐟');
+            showToast('วางปลาให้น้องแมวแล้ว! เหลืออาหารแมว ' + data.food_count + ' ชิ้น 🐟', false);
           });
       };
 
@@ -1126,7 +1524,7 @@ HTML_PAGE = r"""
 
 def roll_cat_food():
     """สุ่มจำนวนอาหารแมว 1-5 ชิ้น ตามโอกาส 49%, 25%, 15%, 10%, 1%"""
-    roll = secrets.randbelow(100)  # 0 ถึง 99
+    roll = secrets.randbelow(100)
     if roll < 49:
         return 1
     elif roll < 74:
@@ -1137,6 +1535,21 @@ def roll_cat_food():
         return 4
     else:
         return 5
+
+
+def parse_images(raw_val):
+    if not raw_val:
+        return []
+    raw_val = raw_val.strip()
+    if raw_val.startswith("["):
+        try:
+            arr = json.loads(raw_val)
+            return [x for x in arr if isinstance(x, str) and x.startswith("data:image/")]
+        except Exception:
+            return []
+    if raw_val.startswith("data:image/"):
+        return [raw_val]
+    return []
 
 
 def get_local_ip():
@@ -1338,9 +1751,14 @@ def init_db():
                 username TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
                 display_name TEXT DEFAULT '',
+                role TEXT NOT NULL DEFAULT 'user',
                 created_at TEXT NOT NULL
             )
         """)
+        u_cols = [row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "role" not in u_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cat_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1364,7 +1782,17 @@ def init_db():
                 claimed_by TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 image_data TEXT DEFAULT '',
-                owner_user TEXT DEFAULT ''
+                owner_user TEXT DEFAULT '',
+                confirm_code TEXT DEFAULT ''
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                author_name TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
         """)
         cols = [row[1] for row in conn.execute("PRAGMA table_info(items)").fetchall()]
@@ -1372,13 +1800,17 @@ def init_db():
             conn.execute("ALTER TABLE items ADD COLUMN image_data TEXT DEFAULT ''")
         if "owner_user" not in cols:
             conn.execute("ALTER TABLE items ADD COLUMN owner_user TEXT DEFAULT ''")
+        if "confirm_code" not in cols:
+            conn.execute("ALTER TABLE items ADD COLUMN confirm_code TEXT DEFAULT ''")
 
         host_row = conn.execute("SELECT username FROM users WHERE username = ?", (HOST_USER,)).fetchone()
         if not host_row:
             conn.execute(
-                "INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, 'host', ?)",
                 (HOST_USER, generate_password_hash(HOST_PASS), "HOST", datetime.now().isoformat())
             )
+        else:
+            conn.execute("UPDATE users SET role = 'host' WHERE username = ?", (HOST_USER,))
 
 
 def ensure_guest_id():
@@ -1387,16 +1819,33 @@ def ensure_guest_id():
     return session["guest_id"]
 
 
-def can_user_delete(owner_user):
+def get_current_actor_id():
     current_user = session.get("user")
+    if current_user:
+        return current_user
+    return f"guest:{ensure_guest_id()}"
+
+
+def get_current_role():
+    current_user = session.get("user")
+    if not current_user:
+        return "guest"
     if current_user == HOST_USER:
+        return "host"
+    return session.get("role", "user")
+
+
+def is_post_owner(owner_user):
+    if not owner_user:
+        return False
+    return owner_user == get_current_actor_id()
+
+
+def can_user_delete(owner_user):
+    role = get_current_role()
+    if role in ("host", "cohost"):
         return True
-    if current_user and owner_user == current_user:
-        return True
-    guest_id = session.get("guest_id")
-    if not current_user and guest_id and owner_user == f"guest:{guest_id}":
-        return True
-    return False
+    return is_post_owner(owner_user)
 
 
 def find_smart_matches(items):
@@ -1454,10 +1903,46 @@ def login():
     if user_row and check_password_hash(user_row["password_hash"], password):
         session["user"] = user_row["username"]
         session["display_name"] = user_row["display_name"] or user_row["username"]
+        session["role"] = "host" if user_row["username"] == HOST_USER else (user_row["role"] or "user")
         session["mode_chosen"] = True
         session.pop("login_error", None)
     else:
         session["login_error"] = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
+        session["auth_tab"] = "signin"
+    return redirect(url_for("index"))
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+    display_name = request.form.get("display_name", "").strip()
+
+    if not username or not password:
+        session["login_error"] = "กรุณากรอกชื่อผู้ใช้และรหัสผ่านให้ครบถ้วน"
+        session["auth_tab"] = "signup"
+        return redirect(url_for("index"))
+
+    with get_db() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if exists:
+            session["login_error"] = f"ชื่อผู้ใช้ '{username}' มีคนใช้แล้ว กรุณาตั้งชื่ออื่น"
+            session["auth_tab"] = "signup"
+            return redirect(url_for("index"))
+
+        # สมัครสมาชิกเองจะได้สิทธิ์ 'user' (ธรรมดา) เท่านั้น ไม่สามารถสร้าง Co-Host ได้
+        conn.execute(
+            "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, 'user', ?)",
+            (username, generate_password_hash(password), display_name, datetime.now().isoformat())
+        )
+
+    session["user"] = username
+    session["display_name"] = display_name or username
+    session["role"] = "user"
+    session["mode_chosen"] = True
+    session.pop("login_error", None)
+    session["flash_msg"] = f"สมัครสมาชิกและเข้าสู่ระบบสำเร็จ ยินดีต้อนรับคุณ {display_name or username}!"
+    session["flash_warn"] = False
     return redirect(url_for("index"))
 
 
@@ -1466,6 +1951,7 @@ def enter_guest():
     ensure_guest_id()
     session.pop("user", None)
     session.pop("display_name", None)
+    session.pop("role", None)
     session.pop("login_error", None)
     session["mode_chosen"] = True
     return redirect(url_for("index"))
@@ -1475,44 +1961,71 @@ def enter_guest():
 def logout():
     session.pop("user", None)
     session.pop("display_name", None)
+    session.pop("role", None)
     session.pop("mode_chosen", None)
     session.pop("login_error", None)
     return redirect(url_for("index"))
 
 
-@app.route("/host/create_user", methods=["POST"])
-def host_create_user():
-    if session.get("user") != HOST_USER:
+@app.route("/manage/create_user", methods=["POST"])
+def manage_create_user():
+    actor_role = get_current_role()
+    if actor_role not in ("host", "cohost"):
         return redirect(url_for("index"))
+
     new_user = request.form.get("new_username", "").strip()
     new_pass = request.form.get("new_password", "").strip()
     disp = request.form.get("display_name", "").strip()
+    requested_role = request.form.get("role", "user").strip()
+
+    # เฉพาะ HOST เท่านั้นที่สร้าง Co-Host ได้ ส่วน Co-Host สร้างได้เฉพาะ 'user' (ธรรมดา)
+    if actor_role == "host":
+        target_role = requested_role if requested_role in ("user", "cohost") else "user"
+    else:
+        target_role = "user"
+
     if new_user and new_pass and new_user != HOST_USER:
+        role_label = "Co-Host" if target_role == "cohost" else "ธรรมดา"
         with get_db() as conn:
-            exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (new_user,)).fetchone()
-            if exists:
-                conn.execute(
-                    "UPDATE users SET password_hash = ?, display_name = ? WHERE username = ?",
-                    (generate_password_hash(new_pass), disp, new_user)
-                )
-                session["friend_msg"] = f"อัปเดตรหัสผ่านให้ '{new_user}' เรียบร้อยแล้ว"
+            existing = conn.execute("SELECT role FROM users WHERE username = ?", (new_user,)).fetchone()
+            if existing:
+                # ป้องกัน Co-Host แก้ไขบัญชีระดับ HOST หรือ Co-Host คนอื่น
+                if actor_role == "cohost" and existing["role"] != "user":
+                    session["friend_err"] = "Co-Host ไม่สามารถแก้ไขรหัสของบัญชีระดับ HOST หรือ Co-Host ได้"
+                else:
+                    conn.execute(
+                        "UPDATE users SET password_hash = ?, display_name = ?, role = ? WHERE username = ?",
+                        (generate_password_hash(new_pass), disp, target_role, new_user)
+                    )
+                    session["friend_msg"] = f"อัปเดตบัญชี '{new_user}' ({role_label}) เรียบร้อยแล้ว"
             else:
                 conn.execute(
-                    "INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)",
-                    (new_user, generate_password_hash(new_pass), disp, datetime.now().isoformat())
+                    "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (new_user, generate_password_hash(new_pass), disp, target_role, datetime.now().isoformat())
                 )
-                session["friend_msg"] = f"สร้างบัญชี '{new_user}' เรียบร้อยแล้ว"
+                session["friend_msg"] = f"สร้างบัญชี '{new_user}' ({role_label}) เรียบร้อยแล้ว"
     session["show_friends"] = True
     return redirect(url_for("index"))
 
 
-@app.route("/host/delete_user/<username>", methods=["POST"])
-def host_delete_user(username):
-    if session.get("user") != HOST_USER or username == HOST_USER:
+@app.route("/manage/delete_user/<username>", methods=["POST"])
+def manage_delete_user(username):
+    actor_role = get_current_role()
+    if actor_role not in ("host", "cohost") or username == HOST_USER:
         return redirect(url_for("index"))
+
     with get_db() as conn:
-        conn.execute("DELETE FROM users WHERE username = ?", (username,))
-    session["friend_msg"] = f"ลบบัญชี '{username}' เรียบร้อยแล้ว"
+        target = conn.execute("SELECT role FROM users WHERE username = ?", (username,)).fetchone()
+        if not target:
+            session["show_friends"] = True
+            return redirect(url_for("index"))
+
+        if actor_role == "cohost" and target["role"] != "user":
+            session["friend_err"] = "Co-Host สามารถลบบัญชีแบบธรรมดาได้เท่านั้น"
+        else:
+            conn.execute("DELETE FROM users WHERE username = ?", (username,))
+            session["friend_msg"] = f"ลบบัญชีและรหัสของ '{username}' เรียบร้อยแล้ว"
+
     session["show_friends"] = True
     return redirect(url_for("index"))
 
@@ -1522,42 +2035,67 @@ def index():
     ensure_guest_id()
     keyword = request.args.get("q", "").strip().lower()
     filter_type = request.args.get("type", "all")
+    filter_category = request.args.get("category", "all")
     filter_status = request.args.get("status", "open")
 
     current_user = session.get("user")
     display_name = session.get("display_name")
-    is_host = (current_user == HOST_USER)
+    role = get_current_role()
+    is_host = (role == "host")
+    is_cohost = (role == "cohost")
+
     login_error = session.pop("login_error", None)
+    signup_ok = session.pop("signup_ok", None)
+    auth_tab = session.pop("auth_tab", "signin")
     friend_msg = session.pop("friend_msg", None)
+    friend_err = session.pop("friend_err", None)
     flash_msg = session.pop("flash_msg", None)
+    flash_warn = session.pop("flash_warn", False)
     show_friends = session.pop("show_friends", False)
     show_login = (not session.get("mode_chosen")) or bool(login_error)
 
     with get_db() as conn:
         all_items = [dict(row) for row in conn.execute("SELECT * FROM items ORDER BY id DESC").fetchall()]
+        all_comments = [dict(row) for row in conn.execute("SELECT * FROM comments ORDER BY id ASC").fetchall()]
         food_row = conn.execute("SELECT food_count FROM cat_state WHERE id = 1").fetchone()
         food_count = food_row["food_count"] if food_row else 0
         friends = []
-        if is_host:
+        if is_host or is_cohost:
             friends = [dict(row) for row in conn.execute(
-                "SELECT username, display_name FROM users WHERE username != ? ORDER BY created_at DESC",
+                "SELECT username, display_name, role FROM users WHERE username != ? ORDER BY created_at DESC",
                 (HOST_USER,)
             ).fetchall()]
+
+    comments_by_item = {}
+    for c in all_comments:
+        comments_by_item.setdefault(c["item_id"], []).append(c)
 
     smart_matches = find_smart_matches(all_items)
     stat_open = sum(1 for i in all_items if i["status"] == "open")
     stat_resolved = sum(1 for i in all_items if i["status"] == "resolved")
 
     filtered_items = []
+    card_galleries = {}
     for item in all_items:
         search_blob = f"{item['item_name']} {item['location']} {item['description']} {item['reporter_name']}".lower()
         if keyword and keyword not in search_blob:
             continue
         if filter_type != "all" and item["type"] != filter_type:
             continue
+        if filter_category != "all" and item["category"] != filter_category:
+            continue
         if filter_status != "all" and item["status"] != filter_status:
             continue
-        item["can_delete"] = can_user_delete(item.get("owner_user", ""))
+        owner_u = item.get("owner_user", "")
+        owner_flag = is_post_owner(owner_u)
+        item["is_owner"] = owner_flag
+        item["can_delete"] = can_user_delete(owner_u)
+        item["can_see_code"] = owner_flag or is_host or is_cohost
+        item["comments"] = comments_by_item.get(item["id"], [])
+        imgs = parse_images(item.get("image_data", ""))
+        item["images"] = imgs
+        if imgs:
+            card_galleries[str(item["id"])] = imgs
         filtered_items.append(item)
 
     base_public_url = get_base_public_url()
@@ -1566,24 +2104,31 @@ def index():
     return render_template_string(
         HTML_PAGE,
         items=filtered_items,
+        card_galleries_json=json.dumps(card_galleries),
         smart_matches=smart_matches,
         stat_open=stat_open,
         stat_resolved=stat_resolved,
         food_count=food_count,
         keyword=keyword,
         filter_type=filter_type,
+        filter_category=filter_category,
         filter_status=filter_status,
         base_public_url=base_public_url,
         mobile_url=mobile_url,
         current_user=current_user,
         display_name=display_name,
         is_host=is_host,
+        is_cohost=is_cohost,
         friends=friends,
         show_login=show_login,
         login_error=login_error,
+        signup_ok=signup_ok,
+        auth_tab=auth_tab,
         show_friends=show_friends,
         friend_msg=friend_msg,
-        flash_msg=flash_msg
+        friend_err=friend_err,
+        flash_msg=flash_msg,
+        flash_warn=flash_warn
     )
 
 
@@ -1591,23 +2136,31 @@ def index():
 def add_item():
     ensure_guest_id()
     session["mode_chosen"] = True
-    current_user = session.get("user")
-    owner_user = current_user if current_user else f"guest:{session['guest_id']}"
+    owner_user = get_current_actor_id()
 
-    image_data = request.form.get("image_data", "").strip()
-    if not image_data and "image_file" in request.files:
-        f = request.files["image_file"]
-        if f and f.filename:
-            raw = f.read()
-            if len(raw) <= 2 * 1024 * 1024:
-                mime = f.mimetype or "image/jpeg"
-                image_data = f"data:{mime};base64," + base64.b64encode(raw).decode("utf-8")
+    confirm_code = request.form.get("confirm_code", "").strip()
+    if len(confirm_code) != 5 or not confirm_code.isdigit():
+        session["flash_msg"] = "กรุณาตั้งรหัสคอนเฟิร์มส่งคืนเป็นตัวเลข 5 หลักให้ถูกต้อง (เช่น 12345)"
+        session["flash_warn"] = True
+        return redirect(url_for("index"))
+
+    # รองรับหลายรูปภาพ (JSON array สูงสุด 5 รูป)
+    imgs = parse_images(request.form.get("images_json", "[]"))
+    if not imgs and "image_file" in request.files:
+        for f in request.files.getlist("image_file"):
+            if f and f.filename and len(imgs) < 5:
+                raw = f.read()
+                if len(raw) <= 2 * 1024 * 1024:
+                    mime = f.mimetype or "image/jpeg"
+                    imgs.append(f"data:{mime};base64," + base64.b64encode(raw).decode("utf-8"))
+
+    images_stored = json.dumps(imgs[:5]) if imgs else ""
 
     with get_db() as conn:
         conn.execute("""
             INSERT INTO items (type, item_name, category, location, item_date,
-                               description, reporter_name, contact_or_pickup, status, created_at, image_data, owner_user)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+                               description, reporter_name, contact_or_pickup, status, created_at, image_data, owner_user, confirm_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)
         """, (
             request.form["type"],
             request.form["item_name"],
@@ -1618,33 +2171,89 @@ def add_item():
             request.form["reporter_name"],
             request.form["contact_or_pickup"],
             datetime.now().isoformat(),
-            image_data,
-            owner_user
+            images_stored,
+            owner_user,
+            confirm_code
         ))
+    session["flash_msg"] = f"บันทึกรายการสำเร็จ! (รหัสคอนเฟิร์ม 5 หลักของคุณคือ {confirm_code})"
+    session["flash_warn"] = False
+    return redirect(url_for("index"))
+
+
+@app.route("/comment/<int:item_id>", methods=["POST"])
+def add_comment(item_id):
+    msg = request.form.get("message", "").strip()
+    if msg:
+        author = session.get("display_name") or session.get("user") or "ผู้ใช้งานทั่วไป"
+        with get_db() as conn:
+            exists = conn.execute("SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone()
+            if exists:
+                conn.execute(
+                    "INSERT INTO comments (item_id, author_name, message, created_at) VALUES (?, ?, ?, ?)",
+                    (item_id, author, msg[:250], datetime.now().isoformat())
+                )
     return redirect(url_for("index"))
 
 
 @app.route("/resolve/<int:item_id>", methods=["POST"])
 def resolve_item(item_id):
+    self_found = request.form.get("self_found") == "1"
     claimed_by = request.form.get("claimed_by", "").strip()
-    if claimed_by:
-        with get_db() as conn:
-            row = conn.execute("SELECT status FROM items WHERE id = ?", (item_id,)).fetchone()
-            if row and row["status"] == "open":
-                reward_food = roll_cat_food()
-                conn.execute(
-                    "UPDATE items SET status = 'resolved', claimed_by = ? WHERE id = ?",
-                    (claimed_by, item_id)
-                )
-                conn.execute(
-                    "UPDATE cat_state SET food_count = food_count + ? WHERE id = 1",
-                    (reward_food,)
-                )
-                fish_icons = "🐟" * reward_food
-                if reward_food == 5:
-                    session["flash_msg"] = f"🎉 แจ็กพอต (1%)! ส่งคืนของสำเร็จ สุ่มได้รับอาหารแมว +{reward_food} ชิ้น {fish_icons}"
-                else:
-                    session["flash_msg"] = f"ส่งคืนของสำเร็จ! สุ่มได้รับอาหารแมว +{reward_food} ชิ้น {fish_icons}"
+    entered_code = request.form.get("confirm_code", "").strip()
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT type, status, reporter_name, owner_user, confirm_code FROM items WHERE id = ?",
+            (item_id,)
+        ).fetchone()
+        if not row or row["status"] != "open":
+            return redirect(url_for("index"))
+
+        owner_flag = is_post_owner(row["owner_user"] or "")
+
+        # กรณีเจ้าของโพสต์ "แจ้งของหาย" กดปิดประกาศของตัวเอง -> ไม่แจกอาหารแมว
+        if row["type"] == "lost" and (owner_flag or self_found):
+            conn.execute(
+                "UPDATE items SET status = 'resolved', claimed_by = ? WHERE id = ?",
+                ("เจ้าของพบของเองแล้ว", item_id)
+            )
+            session["flash_msg"] = "ปิดประกาศเรียบร้อยแล้ว (เจ้าของพบของด้วยตัวเอง จึงไม่ได้รับรางวัลอาหารแมว)"
+            session["flash_warn"] = True
+            return redirect(url_for("index"))
+
+        if not claimed_by:
+            return redirect(url_for("index"))
+
+        # ตรวจสอบรหัสคอนเฟิร์ม 5 หลักก่อนปิดเคสส่งคืน
+        saved_code = (row["confirm_code"] or "").strip()
+        if saved_code and entered_code != saved_code:
+            session["flash_msg"] = "❌ รหัสคอนเฟิร์ม 5 หลักไม่ถูกต้อง! กรุณาตรวจสอบรหัสกับผู้โพสต์ก่อนกดยืนยันส่งคืน"
+            session["flash_warn"] = True
+            return redirect(url_for("index"))
+
+        # ป้องกันพิมพ์ชื่อซ้ำกับชื่อผู้โพสต์เพื่อปั๊มรางวัล
+        if claimed_by.lower() == (row["reporter_name"] or "").strip().lower():
+            session["flash_msg"] = "ชื่อผู้ส่งคืน/ผู้รับคืนต้องไม่ซ้ำกับชื่อผู้โพสต์รายการ"
+            session["flash_warn"] = True
+            return redirect(url_for("index"))
+
+        reward_food = roll_cat_food()
+        label_prefix = "ผู้เก็บได้: " if row["type"] == "lost" else "ผู้รับคืน: "
+        conn.execute(
+            "UPDATE items SET status = 'resolved', claimed_by = ? WHERE id = ?",
+            (f"{label_prefix}{claimed_by} • รหัสยืนยันผ่าน ✔", item_id)
+        )
+        conn.execute(
+            "UPDATE cat_state SET food_count = food_count + ? WHERE id = 1",
+            (reward_food,)
+        )
+        fish_icons = "🐟" * reward_food
+        session["flash_warn"] = False
+        if reward_food == 5:
+            session["flash_msg"] = f"🎉 แจ็กพอต (1%)! ยืนยันรหัส 5 หลักผ่านและส่งคืนสำเร็จ สุ่มได้รับอาหารแมว +{reward_food} ชิ้น {fish_icons}"
+        else:
+            session["flash_msg"] = f"ยืนยันรหัส 5 หลักผ่านและส่งคืนสำเร็จ! สุ่มได้รับอาหารแมว +{reward_food} ชิ้น {fish_icons}"
+
     return redirect(url_for("index"))
 
 
@@ -1653,6 +2262,7 @@ def delete_item(item_id):
     with get_db() as conn:
         row = conn.execute("SELECT owner_user FROM items WHERE id = ?", (item_id,)).fetchone()
         if row and can_user_delete(row["owner_user"] or ""):
+            conn.execute("DELETE FROM comments WHERE item_id = ?", (item_id,))
             conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
     return redirect(url_for("index"))
 
@@ -1660,6 +2270,5 @@ def delete_item(item_id):
 init_db()
 
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 5050))
     app.run(debug=False, host="0.0.0.0", port=port)
